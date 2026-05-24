@@ -16,7 +16,7 @@ Make sure the following are installed on your system before running:
      - Verify: Open a terminal and run: gcc --version
      
   2. Python 3.x
-     - Download from: https://www.python.org/downloads/
+     - Download from: https://python.org
      - Verify: Open a terminal and run: python --version
 
   3. Flask (Python Library)
@@ -24,12 +24,28 @@ Make sure the following are installed on your system before running:
      - Or use the requirements file: pip install -r requirements.txt
 
 ================================================================================
-FIRST TIME SETUP (ONE TIME ONLY)
+FIRST TIME SETUP (GETTING THE CODE)
 ================================================================================
 
-STEP 1: Open a terminal (Command Prompt or PowerShell)
-        Navigate to the project folder:
-        Example: cd "D:\College\Sem 2\SDP\rewrite"
+STEP 1: Download/Pull the files to your local computer
+        Choose ONE of the two options below depending on your situation:
+
+        Option A - Downloading the project for the first time (Clone):
+        1. Open your terminal/command prompt.
+        2. Navigate to where you want to store the project (e.g., cd D:\Projects).
+        3. Run this clone command:
+           git clone https://github.com
+        4. Move into the newly created project folder:
+           cd VEGETABLE_DOOR-DELIVERY_MANAGEMENT_SYSTEM-VeggieTech
+
+        Option B - Syncing an existing local folder with newer GitHub files (Pull):
+        1. Open your terminal and navigate inside your existing project folder.
+        2. Run this command to grab the latest changes from the web:
+           git pull origin main
+        *Note: If you have local changes that clash with GitHub, run this instead 
+         to force your folder to look exactly like the online repository:
+           git fetch --all
+           git reset --hard origin/main
 
 STEP 2: Compile the C backend
         Option A - Use the provided batch file (easiest):
@@ -46,8 +62,7 @@ STEP 3: Install Python dependencies
 RUNNING THE APPLICATION (EVERY TIME)
 ================================================================================
 
-STEP 1: Open a terminal and navigate to the project directory:
-            cd "D:\College\Sem 2\SDP\rewrite"
+STEP 1: Open a terminal and navigate to the project directory.
 
 STEP 2: Start the web server:
             python app.py
@@ -85,7 +100,7 @@ Correct shutdown procedure:
 ADMIN LOGIN
 ================================================================================
 
-  URL      : http://127.0.0.1:5000/login
+  URL      : http://127.0.0
   Username : (as stored in data/admins.txt)
   Password : (as stored in data/admins.txt)
 
