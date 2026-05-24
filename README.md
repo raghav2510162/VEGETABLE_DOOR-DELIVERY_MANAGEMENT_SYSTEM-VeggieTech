@@ -1,1 +1,179 @@
-# SDP-group-6
+# VEGETABLE_DOOR-DELIVERY_MANAGEMENT_SYSTEM-VeggieTech
+================================================================================
+              VEGGIETECH - SETUP & RUN GUIDE
+================================================================================
+
+Project: VeggieTech - Vegetable Delivery Management System
+Stack  : C Backend + Python Flask + HTML/CSS/JavaScript
+
+================================================================================
+PRE-REQUISITES
+================================================================================
+
+Make sure the following are installed on your system before running:
+
+  1. GCC (C Compiler)
+     - Comes with MinGW on Windows.
+     - Verify: Open a terminal and run: gcc --version
+     
+  2. Python 3.x
+     - Download from: https://python.org
+     - Verify: Open a terminal and run: python --version
+
+  3. Flask (Python Library)
+     - Install by running: pip install flask
+     - Or use the requirements file: pip install -r requirements.txt
+
+================================================================================
+FIRST TIME SETUP (GETTING THE CODE)
+================================================================================
+
+STEP 1: Download/Pull the files to your local computer
+        Choose ONE of the two options below depending on your situation:
+
+        Option A - Downloading the project for the first time (Clone):
+        1. Open your terminal/command prompt.
+        2. Navigate to where you want to store the project (e.g., cd D:\Projects).
+        3. Run this clone command:
+           git clone https://github.com/raghav2510162/VEGETABLE_DOOR-DELIVERY_MANAGEMENT_SYSTEM-VeggieTech
+        4. Move into the newly created project folder:
+           cd VEGETABLE_DOOR-DELIVERY_MANAGEMENT_SYSTEM-VeggieTech
+
+        Option B - Syncing an existing local folder with newer GitHub files (Pull):
+        1. Open your terminal and navigate inside your existing project folder.
+        2. Run this command to grab the latest changes from the web:
+           git pull origin main
+        *Note: If you have local changes that clash with GitHub, run this instead 
+         to force your folder to look exactly like the online repository:
+           git fetch --all
+           git reset --hard origin/main
+
+STEP 2: Compile the C backend
+        Option A - Use the provided batch file (easiest):
+            compile.bat
+        Option B - Run the gcc command manually:
+            gcc c_programs/backend.c -o bin/backend.exe
+        After this, you should see 'backend.exe' created inside the bin/ folder.
+        You only need to recompile if you make changes to backend.c.
+
+STEP 3: Install Python dependencies
+            pip install -r requirements.txt
+
+================================================================================
+RUNNING THE APPLICATION (EVERY TIME)
+================================================================================
+
+STEP 1: Open a terminal and navigate to the project directory.
+
+STEP 2: Start the web server:
+            python app.py
+
+        You should see output like:
+            [VeggieTech] C backend started (PID XXXXX)
+             * Running on http://127.0.0.1:5000
+
+STEP 3: Open your web browser and go to:
+            http://127.0.0.1:5000
+
+The application is now fully live and running!
+
+================================================================================
+STOPPING THE APPLICATION (IMPORTANT)
+================================================================================
+
+!! ALWAYS stop the server using Ctrl+C in the terminal. !!
+
+This is CRITICAL. Pressing Ctrl+C triggers the C backend's SIGINT signal
+handler which calls save_data(). This is the ONLY time data is written from
+RAM back to the .txt files in the data/ folder.
+
+If you close the terminal window or kill the process any other way, the
+C backend may not get a chance to save its in-memory data to disk, and
+any changes made during that session (new orders, stock changes) could be LOST.
+
+Correct shutdown procedure:
+  1. Click on the terminal where "python app.py" is running.
+  2. Press Ctrl+C.
+  3. Wait for the "[VeggieTech] C backend stopped" message.
+  4. The terminal will return to the prompt. Data is now saved.
+
+================================================================================
+ADMIN LOGIN
+================================================================================
+
+  URL      : http://127.0.0.1:5000
+  Username : (as stored in data/admins.txt)
+  Password : (as stored in data/admins.txt)
+
+  Default credentials can be found in: data/admins.txt
+  Format: username:password
+
+  Admin capabilities:
+  - View all customer orders separated into "Pending" and "Archived" tables
+  - Update order status (Received → Packed → Dispatched → Delivered/Cancelled)
+  - Automatically move completed/cancelled orders to the Archive history
+  - Modify vegetable prices and stock levels
+  - Add new vegetables to the inventory with custom units (kg, bunches, packs)
+
+================================================================================
+DATA FILES REFERENCE
+================================================================================
+
+All persistent data is stored as plain-text files in the data/ folder.
+These files are loaded into C memory on startup and overwritten on shutdown.
+
+  data/inventory.txt      - All vegetables (name, price, stock, unit)
+  data/orders.txt         - All customer orders and their current statuses
+  data/payments.txt       - Payment transaction records
+  data/admins.txt         - Admin login credentials
+
+  Format of inventory.txt:
+      Tomato:40:38.50:kg
+      Spinach:30:15.00:bunches
+  
+  Format of orders.txt:
+      #OD-00001|John|9876543210|john@email.com|Flat 10...|upi|Tomato:2.5:kg:40;|130.00|145.00|Paid|18-04-2026
+
+================================================================================
+RECOMPILING AFTER CODE CHANGES
+================================================================================
+
+If you edit c_programs/backend.c:
+
+  1. Stop the running server (Ctrl+C)
+  2. Recompile: gcc c_programs/backend.c -o bin/backend.exe
+  3. Restart: python app.py
+
+If you edit app.py or any .html file in templates/:
+  - Flask hot-reloads on save in debug mode.
+  - In production mode (current): stop and restart python app.py.
+  - HTML template changes (pure front-end): refresh the browser (F5).
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+PROBLEM : "backend.exe not found" when running python app.py
+SOLUTION: You have not compiled the C code yet.
+          Run: gcc c_programs/backend.c -o bin/backend.exe
+
+PROBLEM : "flask not found" or ModuleNotFoundError
+SOLUTION: Install Flask: pip install flask
+
+PROBLEM : Port 5000 already in use
+SOLUTION: Another instance of the app is already running.
+          Kill it: taskkill /F /IM python.exe  (Windows)
+          Then restart: python app.py
+
+PROBLEM : Emails are not being received
+SOLUTION: Check the EMAIL_SENDER and EMAIL_PASSWORD in app.py.
+          Make sure you are using a Gmail App Password, NOT your real password.
+          App Passwords are generated at: Google Account → Security → App Passwords
+
+PROBLEM : Stock changes or new orders are not there after restart
+SOLUTION: The previous session was not shut down with Ctrl+C.
+          Always use Ctrl+C to stop the server to ensure data is saved.
+
+================================================================================
+END OF STEPS GUIDE
+================================================================================
