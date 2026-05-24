@@ -1,405 +1,384 @@
+
 ================================================================================
          VEGGIETECH - IMPLEMENTATION PLAN & TECHNICAL DOCUMENTATION
 ================================================================================
 
 Project Title  : VeggieTech - Vegetable Delivery Management System
-Purpose        : This document explains the full architecture, how the three
-                 languages (C, Python, HTML/JS) interact, and every design
-                 decision made during the build.
+Purpose        : This document explains the updated architecture, how the
+                 three languages (C, Python, HTML/JS) interact, and every
+                 major design decision made during development.
 
 ================================================================================
 SECTION 1: THE THREE-LAYER ARCHITECTURE
 ================================================================================
 
-This application is built using a strict three-layer model. Each language has
-a clearly defined responsibility and they never cross lanes.
+This application is built using a strict three-layer architecture where each
+language handles a specific responsibility.
 
 LAYER 1 - C Backend (c_programs/backend.c)
 -------------------------------------------
-  ROLE: The "Brain" - All core business logic and data management lives here.
+  ROLE: The "Brain" - All business logic, runtime storage, and data structures
+  live inside the C backend.
 
   WHY C?
-  C gives direct control over RAM. All data (vegetables, orders) is stored
-  in C data structures (arrays, linked lists) during runtime instead of
-  hitting disk on every operation. This is dramatically faster than reading
-  and writing files constantly.
+  C provides direct memory control and allows high-speed in-memory operations.
+  Instead of constantly reading and writing files, the system loads everything
+  into RAM once and performs all runtime operations directly in memory.
 
   WHAT IT DOES:
-  - Loads inventory and orders from .txt files into memory on startup.
-  - Stores vegetables in a fixed global array:
-      Item g_inventory[50];   // Each slot = name, price, stock, unit
-  - Stores customer orders in a modern FIFO Queue (First-In, First-Out):
-      Order *g_orders_head;   // Points to the oldest order (front of line)
-      Order *g_orders_tail;   // Points to the newest order (end of line)
-  - Uses optimized helper functions (process_items, split, find_order) to 
-    handle complex logic like inventory restoration and item parsing.
-  - Processes COMMANDS sent by Python over stdin/stdout (see Section 2).
-  - On graceful shutdown (Ctrl+C), saves all in-memory data back to .txt files.
+  - Loads inventory, orders, payments, and admin credentials into RAM
+  - Maintains inventory using BOTH arrays and hash-table indexing
+  - Maintains all orders in a master Doubly Linked List
+  - Maintains active orders in a separate Pending Queue
+  - Handles stock deduction and stock restoration
+  - Generates unique order IDs
+  - Processes COMMANDS from Python using stdin/stdout pipes
+  - Saves all in-memory structures back into .txt files during shutdown
 
-  KEY FUNCTIONS:
-  - load_inventory()     : Parses data/inventory.txt into g_inventory[]
-  - load_orders()        : Parses data/orders.txt into the g_orders linked list
-  - save_data()          : Writes both back to disk (only called at shutdown)
-  - cmd_place_order()    : Creates a new OrderNode, deducts stock from g_inventory
-  - cmd_update_status()  : Updates Order.status; if "Cancelled", refunds stock
-  - cmd_pay_order()      : Marks an order as Paid
-  - cmd_list_inventory() : Dumps the g_inventory array back to Python
-  - handle_sigint()      : Signal handler - intercepts Ctrl+C, calls save_data()
+  UPDATED DATA STRUCTURES:
 
-  DATA STRUCTURES IN DETAIL:
-  
     typedef struct {
-        char name[50];    // "Tomato"
-        int  price;       // 40
-        double stock;     // 38.5
-        char unit[20];    // "kg"
+        char name[50];
+        int price;
+        double stock;
+        char unit[20];
     } Item;
 
+    typedef struct InvHTEntry {
+        char key[50];
+        Item *item;
+        struct InvHTEntry *next;
+    } InvHTEntry;
+
+    typedef struct PendingQNode {
+        struct OrderNode *order;
+        struct PendingQNode *next;
+        struct PendingQNode *prev;
+    } PendingQNode;
+
     typedef struct OrderNode {
-        char id[30];                  // "#OD-00001"
-        char name[100];               // "John Doe"
-        char phone[20];               // "9876543210"
-        char email[100];              // "john@example.com"
-        char address[200];            // "Flat 10, XYZ Street..."
-        char payment[20];             // "upi" | "card" | "cod"
-        char items_str[2048];         // "Tomato:2.5:kg:40;Onion:1:kg:29;"
-        double subtotal;              // 130.00
-        double total;                 // 145.00
-        char status[30];              // "Pending" | "Paid" | "Packed"...
-        char date[30];                // "18-04-2026"
-        struct OrderNode *next;       // Pointer to the next order in the list
+        char id[30];
+        char name[100];
+        char phone[20];
+        char email[100];
+        char address[200];
+        char payment[20];
+        char items_str[2048];
+        double subtotal;
+        double total;
+        char status[30];
+        char date[30];
+
+        struct OrderNode *next;
+        struct OrderNode *prev;
+
+        struct PendingQNode *queue_location;
     } Order;
+
+  MAIN GLOBAL STORAGE:
+  - static Item g_inventory[MAX_VEGS];
+  - static InvHTEntry *g_inv_ht[INV_HT_SIZE];
+  - static Order *g_orders_head;
+  - static Order *g_orders_tail;
+  - static PendingQNode *g_pending_head;
+  - static PendingQNode *g_pending_tail;
+  - static Payment *g_payments_head;
+  - static Payment *g_payments_tail;
+
+  KEY FUNCTIONS:
+  - load_inventory()     : Loads inventory.txt into RAM
+  - load_orders()        : Loads orders.txt into the DLL
+  - load_payments()      : Loads payments into memory
+  - save_data()          : Serializes all structures back to disk
+  - find_item_fast()     : Fast inventory lookup using hash table
+  - cmd_place_order()    : Creates order + deducts inventory
+  - cmd_update_status()  : Updates status + restores stock if cancelled
+  - cmd_pay_order()      : Marks orders as paid
+  - process_items()      : Parses item strings for billing/restocking
 
 LAYER 2 - Python Flask (app.py)
 ---------------------------------
-  ROLE: The "Connector" - Routes HTTP requests, talks to C, sends emails.
-
-  WHY PYTHON?
-  Flask is ideal for quickly building web routes and handling HTTP. Python
-  also has excellent libraries for sending emails (smtplib) which would be
-  complex to implement in C.
+  ROLE: The "Connector" - Routes HTTP requests, communicates with C, sends
+  email notifications, and renders templates.
 
   WHAT IT DOES:
-  - Starts the compiled C backend (backend.exe) as a background subprocess
-    using Python's subprocess module with stdin/stdout pipes.
-  - Every time a user clicks something on the website, Flask receives the
-    HTTP request, assembles a text COMMAND string, and sends it to the
-    C backend through the subprocess pipe.
-  - It reads the C backend's text RESPONSE back through stdout and parses
-    key-value pairs (e.g. "NAME:John\nPHONE:999\nEND").
-  - It passes parsed data to Jinja2 templates to render the final HTML.
-  - It sends emails directly using Gmail SMTP (smtplib) when payment is
-    confirmed or when an admin updates an order status.
+  - Starts backend.exe as a persistent subprocess
+  - Sends COMMAND strings to the C backend
+  - Reads structured responses from stdout
+  - Parses KEY:VALUE responses into Python dictionaries
+  - Renders Jinja2 templates dynamically
+  - Sends payment and order-status emails using Gmail SMTP
 
   KEY ROUTES:
-  - GET  /              : Home page (fetches live inventory from C)
-  - GET  /order         : Order form (fetches inventory)
-  - POST /order         : Submits order (sends PLACE_ORDER cmd to C)
-  - GET  /bill          : Bill page (fetches specific order from C)
-  - POST /payment       : Payment (sends PAY_ORDER cmd to C, triggers email)
-  - POST /cancel_order  : Cancel (sends UPDATE_STATUS "Cancelled" to C)
-  - GET  /admin         : Admin dashboard (fetches all orders from C)
-  - POST /admin/update_status  : Updates order status (triggers status email)
-  - POST /admin/update_inventory : Updates vegetable stock in C memory
-  - POST /admin/add_vegetable   : Adds a new vegetable to C memory
+  - GET  /              : Home page
+  - GET  /order         : Order page
+  - POST /order         : Place order
+  - GET  /bill          : Bill view
+  - POST /payment       : Payment processing
+  - POST /cancel_order  : Customer cancellation
+  - GET  /admin         : Admin dashboard
+  - POST /admin/update_status
+  - POST /admin/update_inventory
+  - POST /admin/add_vegetable
 
 LAYER 3 - HTML/CSS/JavaScript (templates/ + static/)
 -------------------------------------------------------
-  ROLE: The "Face" - Everything the user sees and interacts with.
+  ROLE: The "Face" - Handles the visual UI and client-side interaction.
 
   WHAT IT DOES:
-  - Uses Flask's Jinja2 template engine to receive data from Python
-    and render it into HTML dynamically (e.g. {{ veg.name }}, {{ data.TOTAL }}).
-  - Contains vanilla JavaScript for client-side UI logic:
-      * Auto-formats card number as xxxx-xxxx-xxxx-xxxx (with hyphens)
-      * Auto-formats expiry date as MM/YY (with smart month padding)
-      * Validates CVV length and card number length in real-time
-      * Forces cardholder name to uppercase
-      * Calculates live order subtotal as user selects quantities
-      * Validates minimum Rs. 100 order value before form submission
-  - Inherits a shared layout from templates/base.html via Jinja2 extends.
-  - Static assets (styles.css, upi_qr.png) sit in static/ and are served
-    directly by Flask.
+  - Uses Jinja2 placeholders to render live data
+  - Calculates live totals dynamically
+  - Performs card validation and formatting
+  - Validates minimum order value
+  - Handles responsive layout and dashboard visuals
 
 ================================================================================
 SECTION 2: HOW DATA IS STORED IN C MEMORY (RAM)
 ================================================================================
 
-In our stateful C backend architecture, we completely avoid reading and writing
-to text files every time a user clicks a button. Instead, when the program
-boots up, it reads the files ONCE and loads all the information tightly into
-the CPU's RAM using standard C data structures.
+The updated backend now uses a HYBRID MEMORY MODEL instead of a simple
+array + queue architecture.
 
-Here is exactly how the three core pieces of data are stored in C memory:
+--------------------------------------------------------------------------------
+2a. INVENTORY DATABASE - ARRAY + HASH TABLE INDEXING
+--------------------------------------------------------------------------------
 
-  2a. INVENTORY DATABASE - g_inventory[] Array
-  ---------------------------------------------
-  All vegetables are loaded into a fixed-size global Array of Structs.
-  A custom Item struct holds all the specs for a single vegetable:
+The inventory is physically stored inside:
 
-      typedef struct {
-          char   name[50];    // e.g. "Spinach"
-          int    price;       // e.g. 30
-          double stock;       // e.g. 15.00
-          char   unit[20];    // e.g. "bunches"
-      } Item;
+    static Item g_inventory[MAX_VEGS];
 
-      // Physically allocates space in RAM for up to 50 vegetables
-      static Item g_inventory[MAX_VEGS];
+Each vegetable record contains:
+- Name
+- Price
+- Stock
+- Unit
 
-  Because it is an array, when the front page or checkout screen loads, the
-  C code can loop through all 50 slots in under a microsecond and shoot the
-  live stock data over to the Python Flask server.
+To improve lookup speed, the backend also maintains a HASH TABLE:
 
-  2b. LIVE ORDERS DATABASE - g_orders FIFO Queue
-  -------------------------------------------------
-  To ensure orders are processed in the order they were received, the system
-  implements a First-In-First-Out (FIFO) Queue using two anchor pointers:
-  
-      typedef struct OrderNode {
-          char id[30];                  // "#OD-00001"
-          char name[100];               // "John Doe"
-          char phone[20];               // "9876543210"
-          char email[100];              // "john@example.com"
-          char address[200];            // "Flat 10, XYZ Street..."
-          char payment[20];             // "cod", "upi", "card"
-          char items_str[MAX_ITEMS_STR];// "Tomato:5.0:kg:50;Onion:1:kg:30;"
-          double subtotal;              // 130.00
-          double total;                 // 145.00
-          char status[30];              // "Pending", "Cancelled", "Packed"
-          char date[30];                // "18-04-2026"
-          struct OrderNode *next;       // Pointer to the next Order in RAM
-      } Order;
+    static InvHTEntry *g_inv_ht[INV_HT_SIZE];
 
-      static Order *g_orders_head = NULL; // Points to the oldest order
-      static Order *g_orders_tail = NULL; // Points to the newest order
+HOW IT WORKS:
+--------------
+- Vegetable names are used as hash keys
+- The hash function maps names to indexes
+- Each hash node points directly to the Item struct in RAM
+- Collision handling uses linked-list chaining
 
-  THE QUEUE ADVANTAGE:
-  - ENQUEUE: When a new order is placed, we use the g_orders_tail pointer to
-    instantly attach it to the end of the line (O(1) complexity).
-  - PERSISTENCE: When saving to disk, we start at the head and walk to the 
-    tail, ensuring the oldest orders are always at the top of the .txt file.
-  - ACCURACY: There is zero risk of "reversing" the order history during 
-    saving/loading, which was a bug in the old stack-based list.
+ADVANTAGES:
+-------------
+- Fast inventory lookup
+- Faster stock updates
+- Avoids repeated linear searches
+- Better scalability
 
-  3. CODE OPTIMIZATION HELPER FUNCTIONS
-  --------------------------------------
-  The current version of backend.c utilizes high-efficiency helpers to 
-  keep the code clean and explainable:
+--------------------------------------------------------------------------------
+2b. MASTER ORDER DATABASE - DOUBLY LINKED LIST
+--------------------------------------------------------------------------------
 
-  - split(): Replaces complex pointer loops with a single function that 
-    breaks lines by ':' or '|' into easy-to-read arrays.
-  - find_order(): A single reusable search engine for the linked list.
-  - process_items(): A "Swiss-army knife" function. It parses the order 
-    string and can either PRINT the items (for bill receipts) or RESTORE 
-    stock to inventory (for cancellations).
+All orders are stored in a master Doubly Linked List:
 
-  2c. ADMIN CREDENTIALS - g_admin_user / g_admin_pass
-  -----------------------------------------------------
-  Since there is only one set of master credentials for the admin dashboard,
-  no arrays or linked lists are needed. On boot, the values are read from
-  admins.txt and cached into two simple C character arrays:
+    static Order *g_orders_head;
+    static Order *g_orders_tail;
 
-      static char g_admin_user[50];
-      static char g_admin_pass[50];
+Each order node stores:
+- Customer information
+- Payment information
+- Order items
+- Status
+- Runtime queue pointers
 
-  THE CORE RUNTIME LOOP:
-  As the web server runs, modifying stock or cancelling orders simply tweaks
-  fields inside these exact structs, living purely in volatile RAM. When you
-  eventually press Ctrl+C to shut down, the C backend safely traverses the
-  Array and the Linked List, converts them back into formatted strings, and
-  rewrites inventory.txt and orders.txt for the next session.
+The updated structure contains BOTH:
+
+    struct OrderNode *next;
+    struct OrderNode *prev;
+
+WHY A DLL?
+------------
+- Efficient traversal
+- Easier removal/relinking
+- Better suited for admin operations
+- Cleaner archival logic
+
+--------------------------------------------------------------------------------
+2c. PENDING ORDER QUEUE
+--------------------------------------------------------------------------------
+
+The system now maintains a SEPARATE queue for active orders only.
+
+    static PendingQNode *g_pending_head;
+    static PendingQNode *g_pending_tail;
+
+This queue contains:
+- Pending
+- Packed
+- Processing
+- Dispatched orders
+
+Delivered/cancelled orders remain in the master DLL but are removed from the
+pending queue.
+
+Each Order stores:
+
+    struct PendingQNode *queue_location;
+
+This allows O(1) removal from the queue without traversal.
+
+--------------------------------------------------------------------------------
+2d. PAYMENT DATABASE
+--------------------------------------------------------------------------------
+
+Payments are now maintained separately:
+
+    static Payment *g_payments_head;
+    static Payment *g_payments_tail;
+
+This improves:
+- Financial separation
+- Payment history tracking
+- Future gateway scalability
+
+--------------------------------------------------------------------------------
+2e. ADMIN CREDENTIALS
+--------------------------------------------------------------------------------
+
+Admin credentials are stored in simple character arrays:
+
+    static char g_admin_user[50];
+    static char g_admin_pass[50];
 
 ================================================================================
 SECTION 3: HOW THE THREE LANGUAGES COMMUNICATE
 ================================================================================
 
-The core communication mechanism is a PERSISTENT SUBPROCESS PIPE.
+The communication model still uses a PERSISTENT SUBPROCESS PIPE.
 
-Here is the exact step-by-step flow for a customer placing an order:
+FLOW:
+------
+1. Flask starts backend.exe using subprocess.Popen()
+2. C loads all runtime structures into RAM
+3. Flask sends COMMAND strings via stdin
+4. C processes commands internally
+5. C sends structured responses via stdout
+6. Flask parses responses into dictionaries
+7. Jinja2 renders final HTML pages
 
-STEP 1 - SERVER BOOT
-  Python (app.py) runs: subprocess.Popen(["bin/backend.exe"], 
-                                          stdin=PIPE, stdout=PIPE)
-  The C backend wakes up, loads inventory.txt and orders.txt into RAM,
-  and then enters an infinite read loop: while(fgets(line, stdin)) { ... }
-  It is now waiting for commands from Python.
+EXAMPLE COMMAND:
+-----------------
+    PLACE_ORDER "John" "9876543210" "john@email.com"
 
-STEP 2 - USER FILLS ORDER FORM
-  The Browser sends an HTTP POST request to Python Flask at /order.
-  Flask reads the form data: name, phone, address, vegetable quantities.
-
-STEP 3 - PYTHON ASSEMBLES A COMMAND
-  Flask builds a text command string:
-    cmd = 'PLACE_ORDER "John" "9876543210" "john@email.com" "Flat 10" 
-           "cod" "Tomato:2.5:40;Onion:1:29;"'
-
-STEP 4 - PYTHON WRITES TO C'S STDIN
-  Flask writes this string through the subprocess pipe:
-    process.stdin.write(cmd.encode() + b'\n')
-    process.stdin.flush()
-
-STEP 5 - C BACKEND READS AND PROCESSES
-  The C backend's read loop picks up the command line.
-  It tokenizes it and dispatches to cmd_place_order():
-  - Allocates a new OrderNode on the heap using malloc()
-  - Fills in all the order fields
-  - Deducts quantities from g_inventory[]
-  - Generates a new Order ID (#OD-XXXXX)
-  - Appends the node to the g_orders linked list
-
-STEP 6 - C SENDS RESPONSE BACK
-  C backend writes a structured text response to stdout:
-    printf("SUCCESS\nORDER_ID:#OD-00001\nNAME:John\nTOTAL:145.00\nEND\n");
-
-STEP 7 - PYTHON READS AND PARSES
-  Flask reads lines from the subprocess stdout until it sees "END".
-  It parses each "KEY:VALUE" line into a Python dictionary.
-
-STEP 8 - FLASK RENDERS HTML
-  Flask passes the parsed dictionary to Jinja2:
-    return render_template("order_success.html", data=parsed_dict)
-  Jinja2 replaces {{ data.ORDER_ID }} with "#OD-00001" etc.
-  The final HTML page is sent back to the customer's browser.
-
-THE RESULT: The browser displays a clean, formatted order success screen
-            with the exact data that was computed and stored by C in RAM.
+EXAMPLE RESPONSE:
+------------------
+    SUCCESS
+    ORDER_ID:#OD-00001
+    TOTAL:145.00
+    END
 
 ================================================================================
-SECTION 3: THE DATA PERSISTENCE LIFECYCLE
+SECTION 4: THE DATA PERSISTENCE LIFECYCLE
 ================================================================================
 
-  [SERVER START]
-       |
-       v
-  C reads inventory.txt + orders.txt into RAM structs
-       |
-       v
-  [RUNTIME: All operations happen in RAM only]
-  - Placing orders modifies g_inventory[] and g_orders linked list
-  - Updating status modifies Order.status field
-  - Cancelling restock modifies g_inventory[].stock
-  - NOTHING is written to disk during this phase
-       |
-       v
-  [SHUTDOWN: User presses Ctrl+C]
-       |
-       v
-  Python's atexit handler sends "SHUTDOWN" command to C
-       |
-       v
-  C intercepts SIGINT signal via handle_sigint()
-  C calls save_data() which:
-  - Loops through g_inventory[] and writes each Item to inventory.txt
-  - Traverses the g_orders linked list and writes each Order to orders.txt
-       |
-       v
-  C frees all malloc'd memory, calls exit(0)
-  Python process also exits cleanly.
+SERVER START:
+--------------
+- inventory.txt → Inventory structures
+- orders.txt → Master DLL
+- payments.txt → Payment structures
+- Hash indexes are generated
+- Pending queue is rebuilt
+
+RUNTIME:
+----------
+- All operations occur directly in RAM
+- Inventory updates use hash-table lookups
+- Orders update DLL + pending queue
+- Payments update payment structures
+- No constant disk writes occur
+
+SHUTDOWN:
+-----------
+- Flask sends SHUTDOWN command
+- C serializes all structures
+- Files are rewritten safely
+- Heap memory is freed
 
 ================================================================================
-SECTION 4: THE EMAIL NOTIFICATION SYSTEM
+SECTION 5: THE EMAIL NOTIFICATION SYSTEM
 ================================================================================
 
-  WHO SENDS EMAILS? Python (app.py) exclusively. C has NO email logic.
+WHO SENDS EMAILS?
+------------------
+Python Flask exclusively handles email operations.
 
-  HOW:
-  Python uses the smtplib library to connect to Gmail's SMTP server.
-  A Gmail App Password (not the regular password) is used for authentication.
+WHEN EMAILS ARE SENT:
+----------------------
+1. Payment confirmation
+2. Order status updates
 
-  WHEN ARE EMAILS SENT?
-  1. PAYMENT CONFIRMED: When a customer completes payment via /payment
-     Python calls email_payment_confirmed(name, email, order_id, method, total)
-
-  2. ORDER STATUS UPDATE: When an admin changes order status in the dashboard
-     Python calls the appropriate email function based on the new status:
-     - "Packed"     -> email_order_packed()
-     - "Dispatched" -> email_order_dispatched()
-     - "Delivered"  -> email_order_delivered()
-     - "Cancelled"  -> email_order_cancelled()
-
-  NOTE: No email is sent when an order is first placed or when a customer
-        cancels before payment. Only paid orders trigger status emails.
-
-================================================================================
-SECTION 5: ADMIN AUTHENTICATION
-================================================================================
-
-  The admin login uses a simple session-based system managed by Flask.
-
-  - Admin credentials (username, password) are stored in data/admins.txt
-  - On boot, C reads these into g_admin_user[] and g_admin_pass[] char arrays
-  - When admin submits login form, Flask sends LOGIN command to C
-  - C compares the submitted credentials against its in-memory values
-  - If matched, C responds SUCCESS; Flask sets session["admin"] = True
-  - All admin routes check: if not session.get("admin"): redirect(login)
-  - Admin can: view all orders, update order status, modify inventory, add veg
+EMAIL TYPES:
+--------------
+- Packed
+- Dispatched
+- Delivered
+- Cancelled
 
 ================================================================================
 SECTION 6: STOCK MANAGEMENT & CANCEL LOGIC
 ================================================================================
 
-  WHEN AN ORDER IS PLACED:
-  - cmd_place_order() loops through the submitted item quantities
-  - For each item, it finds the matching entry in g_inventory[]
-  - It SUBTRACTS the ordered quantity from g_inventory[i].stock
-  - If required quantity > available stock, the order is rejected
+WHEN AN ORDER IS PLACED:
+-------------------------
+- Backend validates inventory availability
+- Hash table rapidly locates vegetable records
+- Stock is deducted directly from Item structs
+- Order is inserted into:
+    * Master DLL
+    * Pending Queue
 
-  WHEN AN ORDER IS CANCELLED:
-  - cmd_update_status() receives ("Cancelled") as the new status
-  - It checks: is current status already "Cancelled"? If not, proceed.
-  - It parses the order's items_str field: "Tomato:2.5:kg:40;Onion:1:kg:29;"
-  - For each item, it ADDS the quantity back to g_inventory[i].stock
-  - Then it updates Order.status to "Cancelled"
-  - This means stock is automatically refunded on cancellation from BOTH
-    the bill page (customer) and the admin dashboard.
+WHEN AN ORDER IS CANCELLED:
+----------------------------
+- Order status changes to "Cancelled"
+- process_items() parses the items string
+- Quantities are restored into inventory
+- Order is removed from pending queue
+- Master order history remains preserved
 
 ================================================================================
 SECTION 7: COMPLETE PROJECT DIRECTORY GUIDE
 ================================================================================
 
-This project is organized into specific folders, each with a critical role:
-
-📁 rewrite/ (Root Directory)
------------------------------
-- app.py         : The CORE of the web server. It handles URL routing, talks
-                   to the C backend, and manages email notifications.
-- compile.bat    : A helper script for Windows. Double-click to instantly 
-                   recompile backend.c into bin/backend.exe.
-- requirements.txt : List of libraries (only Flask is needed for this app).
+📁 rewrite/
+-------------
+- app.py              : Flask web server
+- requirements.txt    : Python dependencies
+- compile.bat         : Backend compile helper
 
 📁 c_programs/
 ---------------
-- backend.c      : The SOURCE CODE for the entire logic. This is where structs,
-                   linked lists, file I/O, and command processing live.
+- backend.c           : Core backend logic and memory structures
 
-📁 bin/ (Binary)
+📁 bin/
+---------
+- backend.exe         : Compiled runtime backend
+
+📁 data/
+----------
+- inventory.txt       : Inventory database
+- orders.txt          : Order database
+- payments.txt        : Payment logs
+- admins.txt          : Admin credentials
+
+📁 templates/
 ---------------
-- backend.exe    : The actual application. This is what Python "runs" in the 
-                   background. It is regenerated every time you compile.
+- index.html
+- order.html
+- bill.html
+- admin.html
+- login.html
+- payment_success.html
 
-📁 data/ (Persistence)
------------------------
-- inventory.txt  : Stores all vegetables. Format: [Name]:[Price]:[Stock]:[Unit]
-- orders.txt     : Stores all order history. Uses '|' as a separator.
-- payments.txt   : Stores payment confirmation logs.
-- admins.txt     : Stores the master username/password.
-
-📁 static/ (Front-end Assets)
-------------------------------
-- styles.css     : The "Design System". Contains all colors, fonts, and layouts.
-- upi_qr.png     : The graphical QR code displayed on the checkout page.
-
-📁 templates/ (Dynamic User Interface)
----------------------------------------
-- base.html      : The master template. Controls the navigation bar and footer.
-- index.html     : The home page (Shopping catalog).
-- order.html     : The "Checkout" screen where users enter quantities.
-- bill.html      : The "Payment" portal where users choose UPI/Card/COD.
-- order_success.html : The confirmation receipt shown after clicking "Proceed".
-- admin.html     : The secret management dashboard with dual-table layout.
-- admin_login.html : The secure gateway to the dashboard.
-- payment_success.html : The very final screen after a payment is verified.
+📁 static/
+------------
+- styles.css
+- upi_qr.png
 
 ================================================================================
 END OF DOCUMENT
