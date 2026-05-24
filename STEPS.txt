@@ -34,7 +34,7 @@ STEP 1: Download/Pull the files to your local computer
         1. Open your terminal/command prompt.
         2. Navigate to where you want to store the project (e.g., cd D:\Projects).
         3. Run this clone command:
-           git clone https://github.com
+           git clone https://github.com/raghav2510162/VEGETABLE_DOOR-DELIVERY_MANAGEMENT_SYSTEM-VeggieTech
         4. Move into the newly created project folder:
            cd VEGETABLE_DOOR-DELIVERY_MANAGEMENT_SYSTEM-VeggieTech
 
@@ -100,7 +100,7 @@ Correct shutdown procedure:
 ADMIN LOGIN
 ================================================================================
 
-  URL      : http://127.0.0
+  URL      : http://127.0.0.1:5000
   Username : (as stored in data/admins.txt)
   Password : (as stored in data/admins.txt)
 
