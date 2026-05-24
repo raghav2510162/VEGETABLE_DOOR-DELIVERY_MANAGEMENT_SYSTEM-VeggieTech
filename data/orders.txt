@@ -1,0 +1,2 @@
+#OD-00001|Raghav|1234567890|raghavk0820@gmail.com|No.23, Bharathiyar Street, Gokula Nagar, Saidapet, 600037|cod|Tomato:1.00:kg:40;Carrot:0.75:kg:40;Potato:0.75:kg:40;Onion:0.50:kg:40;Beans:0.50:kg:60;|150.00|165.00|Delivered|08-05-2026
+#OD-00002|Raghav|1234567890|raghavk0820@gmail.com|T-106, Isha Yara Apartments Vadakkupattu Main Road, Medavakkam|cod|Tomato:1.00:kg:40;Onion:0.75:kg:40;Cucumber:1.00:kg:45;|115.00|130.00|Pending|12-05-2026

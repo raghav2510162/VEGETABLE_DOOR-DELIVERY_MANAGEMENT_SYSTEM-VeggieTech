@@ -1,5 +1,5 @@
 """
-VeggieTech Flask Application (Rewrite)
+VeggieTech Flask Application
 =======================================
 Architecture: Stateful C Backend via persistent subprocess.
  - The C backend (backend.exe) is started ONCE when Flask launches.
